@@ -32,22 +32,23 @@ const TwoAMMode = () => {
   }, [show]);
 
   return (
-    <AnimatePresence>
-      {show && (
-        <motion.div
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 50 }}
-          className="fixed bottom-20 right-4 bg-gradient-to-r from-indigo-900 to-purple-900 text-white p-6 rounded-2xl shadow-2xl max-w-sm z-40"
-        >
-          <div className="flex items-center space-x-2 mb-2">
-            <span className="text-2xl">🌙</span>
-            <span className="text-sm font-medium opacity-75">2 AM Mode</span>
-          </div>
-          <p className="text-lg font-medium">{question}</p>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <></>
+    // <AnimatePresence>
+    //   {show && (
+    //     <motion.div
+    //       initial={{ opacity: 0, y: 50 }}
+    //       animate={{ opacity: 1, y: 0 }}
+    //       exit={{ opacity: 0, y: 50 }}
+    //       className="fixed bottom-20 right-4 bg-gradient-to-r from-indigo-900 to-purple-900 text-white p-6 rounded-2xl shadow-2xl max-w-sm z-40"
+    //     >
+    //       <div className="flex items-center space-x-2 mb-2">
+    //         <span className="text-2xl">🌙</span>
+    //         <span className="text-sm font-medium opacity-75">2 AM Mode</span>
+    //       </div>
+    //       <p className="text-lg font-medium">{question}</p>
+    //     </motion.div>
+    //   )}
+    // </AnimatePresence>
   );
 };
 

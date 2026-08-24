@@ -1,7 +1,6 @@
+import { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useState, useEffect } from 'react';
-import { AnimatePresence } from 'framer-motion';
 import Sidebar from '../components/Sidebar';
 import Chat from '../components/Chat';
 import Memories from '../components/Memories';
@@ -16,21 +15,14 @@ import TwoAMMode from '../components/TwoAMMode';
 import CameraRequestNotification from '../components/CameraRequestNotification';
 import WelcomeExperience from '../components/WelcomeExperience';
 import DailyAffirmation from '../components/DailyAffirmation';
+import { AnimatePresence } from 'framer-motion';
+import { CallProvider } from '../context/CallContext';
+import IncomingCallModal from '../components/IncomingCallModal';
+import ActiveCallView from '../components/ActiveCallView';
 
 const Home = () => {
   const { user, updateUser } = useAuth();
   const [showWelcome, setShowWelcome] = useState(false);
-
-  useEffect(() => {
-    // Check if user should see welcome (only first visit per session)
-    const hasSeenWelcome = sessionStorage.getItem('hasSeenWelcome');
-
-    if (!hasSeenWelcome && user && !user.isAdmin) {
-      // Show welcome for non-admin users on first load
-      setShowWelcome(true);
-      sessionStorage.setItem('hasSeenWelcome', 'true');
-    }
-  }, [user]);
 
   useEffect(() => {
     // Apply theme
@@ -44,7 +36,6 @@ const Home = () => {
     const checkTime = () => {
       const hour = new Date().getHours();
       const is2AM = hour >= 22 || hour < 4;
-
       if (is2AM) {
         document.body.classList.add('night-mode');
       } else {
@@ -53,18 +44,32 @@ const Home = () => {
     };
 
     checkTime();
-
-    const interval = setInterval(checkTime, 60000); // Check every minute
+    const interval = setInterval(checkTime, 60000);
 
     return () => clearInterval(interval);
   }, [user.theme]);
+
+  useEffect(() => {
+    // Check if user should see welcome (only first visit per session)
+    const hasSeenWelcome = sessionStorage.getItem('hasSeenWelcome');
+    
+    if (!hasSeenWelcome && user && !user.isAdmin) {
+      setShowWelcome(true);
+      sessionStorage.setItem('hasSeenWelcome', 'true');
+    }
+
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [user]);
 
   return (
     <>
       {/* Welcome Experience */}
       <AnimatePresence>
         {showWelcome && (
-          <WelcomeExperience
+          <WelcomeExperience 
             userName={user.name}
             onComplete={() => setShowWelcome(false)}
           />
@@ -72,10 +77,7 @@ const Home = () => {
       </AnimatePresence>
 
       <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
-        {/* Sidebar - Hidden on mobile when chat is open */}
         <Sidebar />
-
-        {/* Main Content */}
         <div className="flex-1 flex flex-col">
           <Routes>
             <Route path="/" element={<Chat />} />
@@ -90,12 +92,12 @@ const Home = () => {
             {user.isAdmin && <Route path="/admin" element={<AdminPanel />} />}
           </Routes>
         </div>
-
-        {/* Global Components */}
-        <DailyAffirmation />
-        <TwoAMMode />
-        {!user.isAdmin && <CameraRequestNotification />}
       </div>
+      <IncomingCallModal />
+      <ActiveCallView />
+      <DailyAffirmation />
+      <TwoAMMode />
+      {!user.isAdmin && <CameraRequestNotification />}
     </>
   );
 };

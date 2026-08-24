@@ -18,7 +18,6 @@ router.post('/', authenticate, async (req, res) => {
       conversation = await Conversation.create({
         participants: [req.userId, participantId]
       });
-      // Populate after creation
       conversation = await conversation.populate('participants', '-password');
     }
 
@@ -27,17 +26,35 @@ router.post('/', authenticate, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-// Get all conversations
+
+// Get all conversations with unread count
 router.get('/', authenticate, async (req, res) => {
   try {
     const conversations = await Conversation.find({
       participants: req.userId
     })
-      .populate('participants', '-password')  // Make sure this is here
+      .populate('participants', '-password')
       .populate('lastMessage')
       .sort({ updatedAt: -1 });
 
-    res.json({ conversations });
+    // Add unread count for each conversation
+    const conversationsWithUnread = await Promise.all(
+      conversations.map(async (conv) => {
+        const unreadCount = await Message.countDocuments({
+          conversation: conv._id,
+          sender: { $ne: req.userId },
+          read: false,
+          deleted: false
+        });
+
+        return {
+          ...conv.toObject(),
+          unreadCount
+        };
+      })
+    );
+
+    res.json({ conversations: conversationsWithUnread });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -61,6 +78,27 @@ router.put('/:id', authenticate, async (req, res) => {
     ).populate('participants', '-password');
 
     res.json({ conversation });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mark all messages as read in a conversation
+router.post('/:id/mark-read', authenticate, async (req, res) => {
+  try {
+    await Message.updateMany(
+      {
+        conversation: req.params.id,
+        sender: { $ne: req.userId },
+        read: false
+      },
+      {
+        read: true,
+        readAt: new Date()
+      }
+    );
+
+    res.json({ message: 'Messages marked as read' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

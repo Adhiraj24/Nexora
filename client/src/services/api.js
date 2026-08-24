@@ -37,7 +37,8 @@ export const userAPI = {
 export const conversationAPI = {
   getOrCreate: (participantId) => api.post('/conversations', { participantId }),
   getAll: () => api.get('/conversations'),
-  update: (id, data) => api.put(`/conversations/${id}`, data)
+  update: (id, data) => api.put(`/conversations/${id}`, data),
+  markAllRead: (id) => api.post(`/conversations/${id}/mark-read`)
 };
 
 export const messageAPI = {

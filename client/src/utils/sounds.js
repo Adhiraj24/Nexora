@@ -47,6 +47,34 @@ export const playCrystalBreak = () => {
   noise.start(audioContext.currentTime);
 };
 
+// NEW: Message notification sound
+export const playMessageNotification = () => {
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  
+  // Create a pleasant notification sound
+  const playTone = (frequency, startTime, duration) => {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime + startTime);
+    
+    gainNode.gain.setValueAtTime(0, audioContext.currentTime + startTime);
+    gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + startTime + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + startTime + duration);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.start(audioContext.currentTime + startTime);
+    oscillator.stop(audioContext.currentTime + startTime + duration);
+  };
+
+  // Pleasant two-tone notification
+  playTone(800, 0, 0.15);
+  playTone(1000, 0.1, 0.2);
+};
+
 // Alternative: Use actual audio file if you have one
 export const playCrystalBreakFile = () => {
   const audio = new Audio('/sounds/message-delete.mp3');

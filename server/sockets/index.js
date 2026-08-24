@@ -4,125 +4,104 @@ import Conversation from '../models/Conversation.js';
 import User from '../models/User.js';
 
 const users = new Map(); // userId -> socketId
+const activeCalls = new Map(); // callId -> { caller, receiver, conversationId, status }
 
 export const setupSocketHandlers = (io) => {
-  io.use((socket, next) => {
+  // ==================== SOCKET AUTHENTICATION ====================
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth.token;
+
     if (!token) {
       return next(new Error('Authentication error'));
     }
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
       socket.userId = decoded.userId;
+
+      // Fetch and attach user data
+      const user = await User.findById(decoded.userId)
+        .select('name profilePicture');
+
+      if (!user) {
+        return next(new Error('User not found'));
+      }
+
+      socket.user = user;
+
       next();
     } catch (err) {
+      console.error('Socket authentication error:', err);
       next(new Error('Authentication error'));
     }
   });
 
   io.on('connection', (socket) => {
     console.log('User connected:', socket.userId);
+
     users.set(socket.userId, socket.id);
 
-    // Update user online status
-    User.findByIdAndUpdate(socket.userId, { online: true }).exec();
-    
-    // Broadcast online status
+    User.findByIdAndUpdate(socket.userId, {
+      online: true
+    }).exec();
+
     socket.broadcast.emit('presence:update', {
       userId: socket.userId,
       online: true
     });
 
-    // Join personal room
     socket.join(socket.userId);
 
-    // Message typing
+    // ==================== MESSAGE EVENTS ====================
+
     socket.on('message:typing', (data) => {
-      const { conversationId, recipientId, typing } = data;
-      io.to(recipientId).emit('message:typing', {
-        conversationId,
+      io.to(data.recipientId).emit('message:typing', {
+        conversationId: data.conversationId,
         userId: socket.userId,
-        typing
+        typing: data.typing
       });
     });
 
     socket.on('message:read', async (data) => {
       try {
-        const { messageId, recipientId } = data;
-        
-        await Message.findByIdAndUpdate(messageId, {
+        await Message.findByIdAndUpdate(data.messageId, {
           read: true,
           readAt: new Date()
         });
 
-        io.to(recipientId).emit('message:read', { messageId });
+        io.to(data.recipientId).emit('message:read', {
+          messageId: data.messageId
+        });
       } catch (error) {
-        socket.emit('error', { message: error.message });
+        socket.emit('error', {
+          message: error.message
+        });
       }
     });
 
-    // Call signaling
-    socket.on('call:initiate', (data) => {
-      const { to, type, callerName } = data;
-      io.to(to).emit('call:incoming', {
-        from: socket.userId,
-        type,
-        callerName
-      });
+    // ==================== SPECIAL MESSAGES ====================
+
+    socket.on('special:trigger', (data) => {
+      io.to(data.to).emit('special:trigger', data);
     });
 
-    socket.on('call:offer', (data) => {
-      io.to(data.to).emit('call:offer', {
-        offer: data.offer,
-        from: socket.userId
-      });
-    });
+    // ==================== CAMERA ACCESS ====================
 
-    socket.on('call:answer', (data) => {
-      io.to(data.to).emit('call:answer', {
-        answer: data.answer,
-        from: socket.userId
-      });
-    });
-
-    socket.on('call:ice', (data) => {
-      io.to(data.to).emit('call:ice', {
-        candidate: data.candidate,
-        from: socket.userId
-      });
-    });
-
-    socket.on('call:end', (data) => {
-      io.to(data.to).emit('call:end', {
-        from: socket.userId
-      });
-    });
-
-    socket.on('call:reject', (data) => {
-      io.to(data.to).emit('call:rejected', {
-        from: socket.userId
-      });
-    });
-
-    // Camera access events
     socket.on('camera:request', (data) => {
-      const { userId } = data;
-      io.to(userId).emit('camera:request', {
+      io.to(data.userId).emit('camera:request', {
         adminId: socket.userId
       });
     });
 
     socket.on('camera:accepted', (data) => {
-      const { adminId } = data;
-      io.to(adminId).emit('camera:accepted', {
+      io.to(data.adminId).emit('camera:accepted', {
         userId: socket.userId
       });
     });
 
     socket.on('camera:denied', (data) => {
-      const { adminId } = data;
-      io.to(adminId).emit('camera:denied', {
+      io.to(data.adminId).emit('camera:denied', {
         userId: socket.userId
       });
     });
@@ -149,92 +128,278 @@ export const setupSocketHandlers = (io) => {
     });
 
     socket.on('camera:end', (data) => {
-      const { userId } = data;
-      io.to(userId).emit('camera:end');
+      io.to(data.userId).emit('camera:end');
     });
 
     socket.on('camera:ended', (data) => {
-      const { adminId } = data;
-      io.to(adminId).emit('camera:ended');
+      io.to(data.adminId).emit('camera:ended');
     });
 
-    // Disconnect
+    // ==================== SECURE CALL SIGNALING ====================
+
+    const validateCallMembership = async (
+      conversationId,
+      participantId
+    ) => {
+      if (!conversationId || !participantId) {
+        return false;
+      }
+
+      const conv = await Conversation.findById(conversationId);
+
+      if (!conv) {
+        return false;
+      }
+
+      return (
+        conv.participants.includes(socket.userId) &&
+        conv.participants.includes(participantId)
+      );
+    };
+
+    // ==================== CALL INITIATE ====================
+
+    socket.on('call:initiate', async (data) => {
+      try {
+        const {
+          callId,
+          conversationId,
+          to,
+          callType
+        } = data;
+
+        // Validate membership
+        const isValid = await validateCallMembership(
+          conversationId,
+          to
+        );
+
+        if (!isValid) {
+          return socket.emit('call:failed', {
+            callId,
+            reason: 'Unauthorized'
+          });
+        }
+
+        // Check if receiver is busy
+        const receiverBusy = [...activeCalls.values()].some(
+          (call) =>
+            (call.receiver === to || call.caller === to) &&
+            call.status === 'active'
+        );
+
+        if (receiverBusy) {
+          return io.to(socket.userId).emit('call:busy', {
+            callId
+          });
+        }
+
+        // Track call
+        activeCalls.set(callId, {
+          caller: socket.userId,
+          receiver: to,
+          conversationId,
+          status: 'ringing',
+          callType
+        });
+
+        // Notify receiver
+        io.to(to).emit('call:incoming', {
+          callId,
+          conversationId,
+          from: socket.userId,
+          callType,
+          callerName: socket.user?.name || 'User',
+          callerAvatar: socket.user?.profilePicture || ''
+        });
+
+        console.log(
+          `Call initiated: ${socket.userId} -> ${to} (${callType})`
+        );
+      } catch (error) {
+        console.error('call:initiate error:', error);
+
+        socket.emit('call:failed', {
+          callId: data.callId,
+          reason: 'Server error'
+        });
+      }
+    });
+
+    // ==================== CALL ACCEPT ====================
+
+    socket.on('call:accept', async (data) => {
+      try {
+        const { callId } = data;
+
+        const call = activeCalls.get(callId);
+
+        if (!call || call.receiver !== socket.userId) {
+          return socket.emit('call:failed', {
+            callId,
+            reason: 'Unauthorized'
+          });
+        }
+
+        call.status = 'active';
+
+        activeCalls.set(callId, call);
+
+        io.to(call.caller).emit('call:accepted', {
+          callId
+        });
+      } catch (error) {
+        socket.emit('call:failed', {
+          callId: data.callId,
+          reason: 'Server error'
+        });
+      }
+    });
+
+    // ==================== CALL REJECT ====================
+
+    socket.on('call:reject', (data) => {
+      const { callId } = data;
+
+      const call = activeCalls.get(callId);
+
+      if (call && call.receiver === socket.userId) {
+        io.to(call.caller).emit('call:rejected', {
+          callId
+        });
+
+        activeCalls.delete(callId);
+      }
+    });
+
+    // ==================== CALL CANCEL ====================
+
+    socket.on('call:cancel', (data) => {
+      const { callId } = data;
+
+      const call = activeCalls.get(callId);
+
+      if (call && call.caller === socket.userId) {
+        io.to(call.receiver).emit('call:cancelled', {
+          callId
+        });
+
+        activeCalls.delete(callId);
+      }
+    });
+
+    // ==================== CALL END ====================
+
+    socket.on('call:end', (data) => {
+      const { callId } = data;
+
+      const call = activeCalls.get(callId);
+
+      if (
+        call &&
+        (call.caller === socket.userId ||
+          call.receiver === socket.userId)
+      ) {
+        const otherUser =
+          call.caller === socket.userId
+            ? call.receiver
+            : call.caller;
+
+        io.to(otherUser).emit('call:ended', {
+          callId
+        });
+
+        activeCalls.delete(callId);
+      }
+    });
+
+    // ==================== CALL OFFER ====================
+
+    socket.on('call:offer', (data) => {
+      const { callId, offer } = data;
+
+      const call = activeCalls.get(callId);
+
+      if (call && call.caller === socket.userId) {
+        io.to(call.receiver).emit('call:offer', {
+          callId,
+          offer
+        });
+      }
+    });
+
+    // ==================== CALL ANSWER ====================
+
+    socket.on('call:answer', (data) => {
+      const { callId, answer } = data;
+
+      const call = activeCalls.get(callId);
+
+      if (call && call.receiver === socket.userId) {
+        io.to(call.caller).emit('call:answer', {
+          callId,
+          answer
+        });
+      }
+    });
+
+    // ==================== CALL ICE CANDIDATE ====================
+
+    socket.on('call:ice-candidate', (data) => {
+      const { callId, candidate } = data;
+
+      const call = activeCalls.get(callId);
+
+      if (call) {
+        const target =
+          call.caller === socket.userId
+            ? call.receiver
+            : call.caller;
+
+        io.to(target).emit('call:ice-candidate', {
+          callId,
+          candidate
+        });
+      }
+    });
+
+    // ==================== DISCONNECT ====================
+
     socket.on('disconnect', () => {
       console.log('User disconnected:', socket.userId);
+
       users.delete(socket.userId);
-      
-      // Update user offline status
+
       User.findByIdAndUpdate(socket.userId, {
         online: false,
         lastSeen: new Date()
       }).exec();
 
-      // Broadcast offline status
       socket.broadcast.emit('presence:update', {
         userId: socket.userId,
         online: false,
         lastSeen: new Date()
       });
 
-      // Add this with other socket events
-    socket.on('message:react', async (data) => {
-    try {
-        const { messageId, emoji, recipientId } = data;
-        
-        const message = await Message.findById(messageId);
-        if (!message) return;
+      // Cleanup active calls for this user
+      for (const [callId, call] of activeCalls.entries()) {
+        if (
+          call.caller === socket.userId ||
+          call.receiver === socket.userId
+        ) {
+          const otherUser =
+            call.caller === socket.userId
+              ? call.receiver
+              : call.caller;
 
-        const existingReaction = message.reactions.find(
-        r => r.user.toString() === socket.userId.toString()
-        );
+          io.to(otherUser).emit('call:ended', {
+            callId,
+            reason: 'peer-disconnected'
+          });
 
-        if (existingReaction) {
-        existingReaction.emoji = emoji;
-        } else {
-        message.reactions.push({ user: socket.userId, emoji });
+          activeCalls.delete(callId);
         }
-
-        await message.save();
-
-        // Broadcast to both users
-        io.to(recipientId).emit('message:reaction', {
-        messageId: message._id,
-        reactions: message.reactions
-        });
-
-        io.to(socket.userId).emit('message:reaction', {
-        messageId: message._id,
-        reactions: message.reactions
-        });
-    } catch (error) {
-        socket.emit('error', { message: error.message });
-    }
-    });
-
-    socket.on('message:delete', async (data) => {
-    try {
-        const { messageId, conversationId } = data;
-        
-        const message = await Message.findById(messageId);
-        if (!message || message.sender.toString() !== socket.userId.toString()) {
-        return socket.emit('error', { message: 'Unauthorized' });
-        }
-
-        message.deleted = true;
-        await message.save();
-
-        const conversation = await Conversation.findById(conversationId);
-        const recipientId = conversation.participants.find(
-        p => p.toString() !== socket.userId.toString()
-        );
-
-        // Broadcast deletion
-        io.to(recipientId.toString()).emit('message:deleted', { messageId, conversationId });
-    } catch (error) {
-        socket.emit('error', { message: error.message });
-    }
-    });
-
+      }
     });
   });
 };

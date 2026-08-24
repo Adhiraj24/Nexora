@@ -160,66 +160,81 @@ const Sidebar = () => {
 
         {/* Conversations */}
         {conversations.length > 0 && (
-          <div className="px-4 pb-4">
+        <div className="px-4 pb-4">
             <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2 px-4">
-              Conversations
+            Conversations
             </h3>
             <div className="space-y-1">
-              {conversations.map((conv) => {
+            {conversations.map((conv) => {
+                // FIX: Properly identify other user
                 const currentUserId = user?.id || user?._id;
-            const otherUser = conv.participants?.find(p => {
+                const otherUser = conv.participants?.find(p => {
                 const participantId = p?._id || p;
                 return participantId?.toString() !== currentUserId?.toString();
-            });
-            
-            // Skip if no other user found
-            if (!otherUser) {
+                });
+                
+                // Skip if no other user found
+                if (!otherUser) {
                 return null;
-            }
-            
-            const isActive = conversationId === conv._id;
+                }
+                
+                const isActive = conversationId === conv._id;
+                const hasUnread = conv.unreadCount > 0;
                 
                 return (
-                  <button
+                <button
                     key={conv._id}
                     onClick={() => navigate(`/chat/${conv._id}`)}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition ${
-                      isActive
+                    isActive
                         ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800'
+                        : hasUnread
+                        ? 'bg-blue-50 dark:bg-blue-900/10 hover:bg-blue-100 dark:hover:bg-blue-900/20'
                         : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                     }`}
-                  >
+                >
                     <div className="relative flex-shrink-0">
-                      {otherUser?.profilePicture ? (
+                    {otherUser?.profilePicture ? (
                         <img
-                          src={otherUser.profilePicture}
-                          alt={otherUser?.name}
-                          className="w-10 h-10 rounded-full object-cover"
+                        src={otherUser.profilePicture}
+                        alt={otherUser?.name}
+                        className="w-10 h-10 rounded-full object-cover"
                         />
-                      ) : (
+                    ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center">
-                          <span className="text-white font-semibold">
+                        <span className="text-white font-semibold">
                             {otherUser?.name?.charAt(0).toUpperCase() || '?'}
-                          </span>
+                        </span>
                         </div>
-                      )}
-                      {otherUser?.online && (
+                    )}
+                    {otherUser?.online && (
                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
-                      )}
+                    )}
                     </div>
                     <div className="flex-1 min-w-0 text-left">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    <p className={`text-sm truncate ${
+                        hasUnread 
+                        ? 'font-bold text-gray-900 dark:text-white' 
+                        : 'font-medium text-gray-900 dark:text-white'
+                    }`}>
                         {conv.nickname || otherUser?.name || 'Unknown'}
-                      </p>
-                      {conv.isFavorite && (
+                    </p>
+                    {conv.isFavorite && (
                         <p className="text-xs text-purple-500">⭐ Favorite</p>
-                      )}
+                    )}
                     </div>
-                  </button>
+                    {hasUnread && (
+                    <div className="flex-shrink-0">
+                        <div className="bg-primary text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                        {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
+                        </div>
+                    </div>
+                    )}
+                </button>
                 );
-              }).filter(Boolean)}
+            }).filter(Boolean)}
             </div>
-          </div>
+        </div>
         )}
 
         {/* Available Users */}

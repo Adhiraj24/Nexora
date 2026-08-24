@@ -685,27 +685,27 @@ const SpecialUsersTab = () => {
               >
                 <td className="px-6 py-4">
                   <div className="flex items-center space-x-3">
-                    {su.user.profilePicture ? (
+                    {su.user?.profilePicture ? (
                       <img
                         src={su.user.profilePicture}
-                        alt={su.user.name}
+                        alt={su.user?.name || 'User'}
                         className="w-10 h-10 rounded-full object-cover"
                       />
                     ) : (
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
                         <span className="text-white font-semibold">
-                          {su.user.name.charAt(0).toUpperCase()}
+                          {(su.user?.name || 'U').charAt(0).toUpperCase()}
                         </span>
                       </div>
                     )}
 
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">
-                        {su.user.name}
+                        {su.user?.name || 'User'}
                       </p>
 
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        @{su.user.username}
+                        @{su.user?.username || 'unknown'}
                       </p>
                     </div>
                   </div>
